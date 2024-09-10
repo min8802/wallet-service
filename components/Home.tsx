@@ -1,10 +1,11 @@
 import { Button, Flex, Input, Text } from "@chakra-ui/react";
 import { ethers } from "ethers";
-import { FC, useState } from "react";
+import { FC, useEffect, useState } from "react";
 
+const SEPOLIA_PROVIDER_URL = 'https://sepolia.infura.io/v3/d1ac03c74048425a9dc53f70360cf841';
 
 const Home: FC = () => {
-  const [wallet, setWallet] = useState<ethers.HDNodeWallet | null>(null);
+  const [wallet, setWallet] = useState<ethers.Wallet | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
   const [recipient, setRecipient] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
@@ -13,7 +14,10 @@ const Home: FC = () => {
   // 새로운 지갑 생성 (비밀키, 공개키 생성)
   const createWallet = (): void => {
     const newWallet = ethers.Wallet.createRandom();
-    setWallet(newWallet);
+    const provider = new ethers.JsonRpcProvider(SEPOLIA_PROVIDER_URL);
+    const walletWithProvider = newWallet.connect(provider);
+    setWallet(walletWithProvider as unknown as ethers.Wallet); // 이부분 walletWithProvider는 HDNodeWallet이고 ethers.Wallet은 Wallet 타입 walletWithProvider가 서브 객체 이 코드 문제 생길 수 있는지 ?
+    localStorage.setItem('privateKey', newWallet.privateKey);
     console.log('New Wallet Address:', newWallet.address);
   };
 
@@ -21,7 +25,7 @@ const Home: FC = () => {
   const getBalance = async (): Promise<void> => {
     if (wallet) {
       try {
-        const provider = ethers.getDefaultProvider(); // 기본 제공자 연결
+        const provider = new ethers.JsonRpcProvider(SEPOLIA_PROVIDER_URL); // Sepolia 프로바이더 설정
         const balance = await provider.getBalance(wallet.address);
         setBalance(ethers.formatEther(balance)); // 잔액을 Ether로 변환
       } catch (error) {
@@ -50,6 +54,15 @@ const Home: FC = () => {
       }
     }
   };
+
+  useEffect(() => {
+    const storedPrivateKey = localStorage.getItem('privateKey');
+    if (storedPrivateKey) {
+      const wallet = new ethers.Wallet(storedPrivateKey);
+      const provider = new ethers.JsonRpcProvider(SEPOLIA_PROVIDER_URL);
+      setWallet(wallet.connect(provider));
+    }
+  }, []);
 
   return (
     <Flex direction="column" p={5} gap={4}>
