@@ -10,10 +10,11 @@ const Home: FC = () => {
   const [recipient, setRecipient] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string>("");
 
   // 새로운 지갑 생성 (비밀키, 공개키 생성)
   const createWallet = (): void => {
-    const newWallet = ethers.Wallet.createRandom();
+    const newWallet = ethers.Wallet.createRandom(); //wallet객체 생성 wallet.address, wallet.privateKey
     const provider = new ethers.JsonRpcProvider(SEPOLIA_PROVIDER_URL);
     const walletWithProvider = newWallet.connect(provider);
     setWallet(walletWithProvider as unknown as ethers.Wallet); // 이부분 walletWithProvider는 HDNodeWallet이고 ethers.Wallet은 Wallet 타입 walletWithProvider가 서브 객체 이 코드 문제 생길 수 있는지 ?
@@ -38,19 +39,28 @@ const Home: FC = () => {
   const sendTransaction = async (): Promise<void> => {
     if (wallet && recipient && amount) {
       try {
-        const provider = ethers.getDefaultProvider(); // 이더리움 네트워크 제공자
+        const provider = new ethers.JsonRpcProvider(SEPOLIA_PROVIDER_URL); // Sepolia 프로바이더 설정
         const walletWithProvider = wallet.connect(provider); // 네트워크와 연결된 지갑
+        const gasPriceHex = await provider.send("eth_gasPrice", []); // JSON-RPC 직접 호출
+        // console.log(gasPriceHex); //0x19a4b4c2e
+        const gasPrice = BigInt(gasPriceHex); // 가스 가격을 BigInt로 변
+        // console.log(gasPrice); //6883593262n
         const tx = {
           to: recipient,
-          value: ethers.parseEther(amount), // 송금할 Ether 양
-          gasLimit: 21000, // 기본 가스 한도
-          gasPrice: ethers.parseUnits('10', 'gwei'), // 기본 가스 가격
+          value: ethers.parseEther(amount), // 송금할 Ether 양 (0.001) amount면 실제로는 10^15 wei임
+          gasLimit: 41000, // 기본 가스 한도
+          gasPrice: gasPrice, // 네트워크 가스 가격
         };
         const transaction = await walletWithProvider.sendTransaction(tx); // 트랜잭션 전송
         setTxHash(transaction.hash); // 트랜잭션 해시 저장
         console.log('Transaction Hash:', transaction.hash);
       } catch (error) {
-        console.error('Transaction failed', error);
+        if ((error as any).code === "INSUFFICIENT_FUNDS") {
+          const requiredGas = ethers.formatEther((error as any).info.error.message.match(/overshot (\d+)/)[1]);
+          setErrorMessage(`잔액이 부족합니다. 최소 ${requiredGas} ETH가 필요합니다.`);
+        } else {
+          setErrorMessage("트랜잭션 실패: " + (error as any).message);
+        }
       }
     }
   };
@@ -64,6 +74,24 @@ const Home: FC = () => {
     }
   }, []);
 
+  useEffect(() => {
+    if (wallet) {
+      getBalance(); // 초기 잔액 조회
+
+      const provider = new ethers.JsonRpcProvider(SEPOLIA_PROVIDER_URL);
+
+      // 블록이 생길 때마다 잔액 업데이트
+      provider.on('block', async () => {
+        await getBalance();
+      });
+
+      // 컴포넌트가 언마운트될 때 이벤트를 해제
+      return () => {
+        provider.off('block', getBalance);
+      };
+    }
+  }, [wallet]);
+
   return (
     <Flex direction="column" p={5} gap={4}>
       <Flex mb={4} fontSize="2xl">
@@ -74,9 +102,9 @@ const Home: FC = () => {
           <Text>Wallet Address: {wallet.address}</Text>
           <Text>Private Key: {wallet.privateKey}</Text>
 
-          <Button onClick={getBalance} colorScheme="teal">
+          {/* <Button onClick={getBalance} colorScheme="teal">
             Get Balance
-          </Button>
+          </Button> */}
 
           {balance && (
             <Text>Balance: {balance} ETH</Text>
@@ -102,6 +130,7 @@ const Home: FC = () => {
             {txHash && (
               <Text>Transaction Hash: {txHash}</Text>
             )}
+            {errorMessage && <Text color="red.500">{errorMessage}</Text>} {/* 에러 메시지 표시 */}
           </Flex>
         </Flex>
       ) : (
