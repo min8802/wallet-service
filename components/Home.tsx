@@ -12,6 +12,10 @@ const Home: FC = () => {
   const [txHash, setTxHash] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>("");
 
+  // 프로바이더 설정
+  // const provider = new ethers.JsonRpcProvider(SEPOLIA_PROVIDER_URL);
+
+
   // 새로운 지갑 생성 (비밀키, 공개키 생성)
   const createWallet = (): void => {
     const newWallet = ethers.Wallet.createRandom(); //wallet객체 생성 wallet.address, wallet.privateKey
@@ -45,15 +49,25 @@ const Home: FC = () => {
         // console.log(gasPriceHex); //0x19a4b4c2e
         const gasPrice = BigInt(gasPriceHex); // 가스 가격을 BigInt로 변
         // console.log(gasPrice); //6883593262n
+        const adjustedGasPrice = gasPrice + (gasPrice / 2n); // 50% 증가
+        const nonce = await provider.getTransactionCount(wallet.address, 'pending'); // pending 상태의 논스 가져오기
+        console.log('Current nonce:', nonce);
         const tx = {
           to: recipient,
           value: ethers.parseEther(amount), // 송금할 Ether 양 (0.001) amount면 실제로는 10^15 wei임
-          gasLimit: 41000, // 기본 가스 한도
-          gasPrice: gasPrice, // 네트워크 가스 가격
+          gasLimit: 21000, // 기본 가스 한도
+          gasPrice: adjustedGasPrice, // 네트워크 가스 가격
+          nonce: nonce, // 논스를 명시적으로 설정
         };
+        
         const transaction = await walletWithProvider.sendTransaction(tx); // 트랜잭션 전송
         setTxHash(transaction.hash); // 트랜잭션 해시 저장
         console.log('Transaction Hash:', transaction.hash);
+        // 트랜잭션이 블록에 포함될 때까지 대기
+        const receipt = await transaction.wait(); // 트랜잭션이 완료될 때까지 대기
+        console.log('Transaction was mined in block', receipt!.blockNumber); //receipt가 완료 안될수도 있잖아 ? null일수도 있어 음
+        getBalance();
+        // 잔액 업데이트
       } catch (error) {
         if ((error as any).code === "INSUFFICIENT_FUNDS") {
           const requiredGas = ethers.formatEther((error as any).info.error.message.match(/overshot (\d+)/)[1]);
@@ -74,23 +88,12 @@ const Home: FC = () => {
     }
   }, []);
 
+
+
   useEffect(() => {
     if (wallet) {
       getBalance(); // 초기 잔액 조회
-
-      const provider = new ethers.JsonRpcProvider(SEPOLIA_PROVIDER_URL);
-
-      // 블록이 생길 때마다 잔액 업데이트
-      provider.on('block', async () => {
-        await getBalance();
-      });
-
-      // 컴포넌트가 언마운트될 때 이벤트를 해제
-      return () => {
-        provider.off('block', getBalance);
-      };
-    }
-  }, [wallet]);
+  }}, [wallet]);
 
   return (
     <Flex direction="column" p={5} gap={4}>
